@@ -165,6 +165,20 @@ CREATE TABLE reviews (
 );
 
 ------------------------------------------------------------
+-- VIEW LOGS (for NoSQL JSONB analytics)
+------------------------------------------------------------
+CREATE TABLE view_logs (
+    id          SERIAL PRIMARY KEY,
+    student_no  VARCHAR(20),
+    item_id     INTEGER,
+    viewed_at   TIMESTAMP NOT NULL DEFAULT NOW(),
+    meta        JSONB,    -- ★ server.py 必須有 meta 欄位
+    FOREIGN KEY (student_no) REFERENCES users(student_no),
+    FOREIGN KEY (item_id)  REFERENCES items(item_id)
+);
+
+
+------------------------------------------------------------
 -- 清空資料
 ------------------------------------------------------------
 TRUNCATE TABLE reviews, shipments, payments, order_items, orders,
@@ -184,7 +198,7 @@ VALUES
 ('B11000006', 'b11000006@ntu.edu.tw', 'hash_06', '吳品涵', '0912-111-006', TRUE, NOW() - INTERVAL '40 days', NOW() - INTERVAL '3 days'),
 ('B11000007', 'b11000007@ntu.edu.tw', 'hash_07', '周伯承', '0912-111-007', TRUE, NOW() - INTERVAL '35 days', NOW() - INTERVAL '2 days'),
 ('B11000008', 'b11000008@ntu.edu.tw', 'hash_08', '蔡郁庭', '0912-111-008', TRUE, NOW() - INTERVAL '30 days', NOW() - INTERVAL '1 days'),
-('B11000009', 'b11000009@ntu.edu.tw', 'hash_09', '許庭瑜', FALSE, NOW() - INTERVAL '25 days', NOW() - INTERVAL '1 days'),
+('B11000009', 'b11000009@ntu.edu.tw', 'hash_09', '許庭瑜', '0912-111-009', FALSE, NOW() - INTERVAL '25 days', NOW() - INTERVAL '1 days'),
 ('B11000010', 'b11000010@ntu.edu.tw', 'hash_10', '鄭雅雯', '0912-111-010', TRUE, NOW() - INTERVAL '20 days', NOW());
 
 ------------------------------------------------------------
@@ -335,29 +349,189 @@ VALUES
 (3,5,'B11000006','B11000006',4,'符合描述。',NOW()-INTERVAL '7 days'),
 (4,6,'B11000007','B11000008',5,'賣家友善。',NOW()-INTERVAL '4 days');
 
+------------------------------------------------------------
+-- 額外測試資料：更多訂單 / 訂單明細 / 付款 / 出貨 / 評價
+-- 目的：讓「分類銷售額、月營收、暢銷商品、賣家評價」等分析更有意義
+------------------------------------------------------------
 
 ------------------------------------------------------------
--- 修正序列（非常重要）
+-- 更多 ORDERS
+-- 新增 9~13 號訂單，狀態都為 Completed，分散在不同時間
 ------------------------------------------------------------
+INSERT INTO orders (order_id, buyer_student_no, seller_student_no, order_type, status, total_amount,
+                    consignee_name, consignee_phone, shipping_address,
+                    created_at, paid_at, shipped_at, completed_at, cancelled_at)
+VALUES
+-- 訂單 9：買 Sony 耳機（Headphones 類別）
+(9, 'B11000004', 'B11000002', 'direct', 'Completed', 6800,
+ '李雅婷', '0912-111-004', '台北市大安區復興南路',
+ NOW() - INTERVAL '55 days',
+ NOW() - INTERVAL '54 days',
+ NOW() - INTERVAL '53 days',
+ NOW() - INTERVAL '51 days',
+ NULL),
+
+-- 訂單 10：買 ASUS 筆電（Laptops 類別）
+(10, 'B11000003', 'B11000002', 'direct', 'Completed', 11000,
+ '張博彥', '0912-111-003', '台北市中正區公園路',
+ NOW() - INTERVAL '45 days',
+ NOW() - INTERVAL '44 days',
+ NOW() - INTERVAL '43 days',
+ NOW() - INTERVAL '41 days',
+ NULL),
+
+-- 訂單 11：再買一次微積分課本（Textbooks 類別，讓同一商品賣多次）
+(11, 'B11000001', 'B11000003', 'direct', 'Completed', 350,
+ '林冠宇', '0912-111-001', '台北市新生南路',
+ NOW() - INTERVAL '32 days',
+ NOW() - INTERVAL '31 days',
+ NOW() - INTERVAL '30 days',
+ NOW() - INTERVAL '28 days',
+ NULL),
+
+-- 訂單 12：再買一次宿舍桌燈（Dorm Items 類別）
+(12, 'B11000008', 'B11000006', 'direct', 'Completed', 400,
+ '蔡郁庭', '0912-111-008', '台北市基河路',
+ NOW() - INTERVAL '26 days',
+ NOW() - INTERVAL '25 days',
+ NOW() - INTERVAL '24 days',
+ NOW() - INTERVAL '22 days',
+ NULL),
+
+-- 訂單 13：再買一次羽毛球拍（Sport 類別）
+(13, 'B11000002', 'B11000008', 'direct', 'Completed', 1500,
+ '陳怡君', '0912-111-002', '台北市南京東路',
+ NOW() - INTERVAL '18 days',
+ NOW() - INTERVAL '17 days',
+ NOW() - INTERVAL '16 days',
+ NOW() - INTERVAL '14 days',
+ NULL);
+
+------------------------------------------------------------
+-- 更多 ORDER ITEMS
+-- 讓同一個 item 出現在多個訂單裡，支援「暢銷商品排行」分析
+------------------------------------------------------------
+INSERT INTO order_items (order_id, item_id, qty, price_each, title_snapshot)
+VALUES
+-- 訂單 9：Sony WH-1000XM4 耳機（item_id = 2）
+(9, 2, 1, 6800, 'Sony WH-1000XM4 耳機'),
+
+-- 訂單 10：ASUS 二手筆電（item_id = 12）
+(10, 12, 1, 11000, '二手筆電 ASUS'),
+
+-- 訂單 11：微積分課本再賣一次（item_id = 3）
+(11, 3, 1, 350, '微積分（第7版）'),
+
+-- 訂單 12：宿舍桌燈再賣一次（item_id = 7）
+(12, 7, 1, 400, '宿舍桌燈'),
+
+-- 訂單 13：羽毛球拍再賣一次（item_id = 9）
+(13, 9, 1, 1500, '羽毛球拍');
+
+------------------------------------------------------------
+-- 更多 PAYMENTS
+-- 每一筆新訂單對應一筆成功付款紀錄
+------------------------------------------------------------
+INSERT INTO payments (payment_id, order_id, method, amount, status, txn_ref, paid_at)
+VALUES
+(9,  9, 'credit_card', 6800,  'Success', 'TXN9',  (SELECT paid_at FROM orders WHERE order_id = 9)),
+(10, 10, 'bank_transfer', 11000, 'Success', 'TXN10', (SELECT paid_at FROM orders WHERE order_id = 10)),
+(11, 11, 'credit_card', 350,  'Success', 'TXN11', (SELECT paid_at FROM orders WHERE order_id = 11)),
+(12, 12, 'bank_transfer', 400,  'Success', 'TXN12', (SELECT paid_at FROM orders WHERE order_id = 12)),
+(13, 13, 'bank_transfer', 1500, 'Success', 'TXN13', (SELECT paid_at FROM orders WHERE order_id = 13));
+
+------------------------------------------------------------
+-- 更多 SHIPMENTS
+-- 為新完成的訂單建立出貨紀錄
+------------------------------------------------------------
+INSERT INTO shipments (shipment_id, order_id, carrier, tracking_no, shipped_at, delivered_at)
+VALUES
+(6, 9,  '7-11',      '711889900',
+ (SELECT shipped_at   FROM orders WHERE order_id = 9),
+ (SELECT completed_at FROM orders WHERE order_id = 9)),
+
+(7, 10, 'Familymart', 'FML998877',
+ (SELECT shipped_at   FROM orders WHERE order_id = 10),
+ (SELECT completed_at FROM orders WHERE order_id = 10)),
+
+(8, 11, 'Post',      'POST445566',
+ (SELECT shipped_at   FROM orders WHERE order_id = 11),
+ (SELECT completed_at FROM orders WHERE order_id = 11)),
+
+(9, 12, '7-11',      '711334455',
+ (SELECT shipped_at   FROM orders WHERE order_id = 12),
+ (SELECT completed_at FROM orders WHERE order_id = 12)),
+
+(10, 13,'Familymart','FML556677',
+ (SELECT shipped_at   FROM orders WHERE order_id = 13),
+ (SELECT completed_at FROM orders WHERE order_id = 13));
+
+------------------------------------------------------------
+-- 更多 REVIEWS
+-- 讓每個賣家有多筆評價，支援「賣家平均評價」分析
+------------------------------------------------------------
+INSERT INTO reviews (review_id, order_id, rater_student_no, ratee_student_no, rating, comment, created_at)
+VALUES
+(5,  9, 'B11000004', 'B11000002', 4, '耳機狀況良好，出貨速度普通。', NOW() - INTERVAL '50 days'),
+(6, 10, 'B11000003', 'B11000002', 3, '商品正常使用，但包裝有點簡單。', NOW() - INTERVAL '40 days'),
+(7, 11, 'B11000001', 'B11000003', 5, '課本幾乎全新，非常滿意。',     NOW() - INTERVAL '27 days'),
+(8, 12, 'B11000008', 'B11000006', 4, '桌燈符合描述，CP 值不錯。',     NOW() - INTERVAL '20 days'),
+(9, 13, 'B11000002', 'B11000008', 5, '球拍好打，賣家也很友善。',       NOW() - INTERVAL '13 days');
+
+------------------------------------------------------------
+-- VIEW_LOGS：假資料（含 mobile / web）
+------------------------------------------------------------
+
+INSERT INTO view_logs (student_no, item_id, meta, viewed_at) VALUES
+('B11000001', 1, '{"device":"mobile","ip":"140.112.1.1"}', NOW() - INTERVAL '1 days'),
+('B11000002', 3, '{"device":"mobile","ip":"140.112.1.2"}', NOW() - INTERVAL '2 days'),
+('B11000003', 5, '{"device":"mobile","ip":"140.112.1.3"}', NOW() - INTERVAL '3 days'),
+('B11000004', 8, '{"device":"mobile","ip":"140.112.1.4"}', NOW() - INTERVAL '4 days'),
+('B11000005', 9, '{"device":"mobile","ip":"140.112.1.5"}', NOW() - INTERVAL '5 days'),
+
+('B11000006', 7, '{"device":"web","browser":"Chrome"}', NOW() - INTERVAL '1 days'),
+('B11000007', 1, '{"device":"web","browser":"Safari"}', NOW() - INTERVAL '2 days'),
+('B11000008', 3, '{"device":"web","browser":"Firefox"}', NOW() - INTERVAL '3 days'),
+
+-- 多一些 mobile logs
+('B11000001', 9, '{"device":"mobile"}', NOW() - INTERVAL '6 days'),
+('B11000002', 8, '{"device":"mobile"}', NOW() - INTERVAL '7 days'),
+('B11000003', 8, '{"device":"mobile"}', NOW() - INTERVAL '8 days'),
+('B11000004', 3, '{"device":"mobile"}', NOW() - INTERVAL '9 days'),
+('B11000006', 5, '{"device":"mobile"}', NOW() - INTERVAL '10 days');
+
 
 -- items.item_id
-SELECT setval('items_item_id_seq', (SELECT COALESCE(MAX(item_id),1) FROM items));
+SELECT setval('items_item_id_seq',
+              (SELECT COALESCE(MAX(item_id), 1) FROM items),
+              TRUE);
 
 -- item_images.image_id
-SELECT setval('item_images_image_id_seq', (SELECT COALESCE(MAX(image_id),1) FROM item_images));
+SELECT setval('item_images_image_id_seq',
+              (SELECT COALESCE(MAX(image_id), 1) FROM item_images),
+              TRUE);
 
 -- orders.order_id
-SELECT setval('orders_order_id_seq', (SELECT COALESCE(MAX(order_id),1) FROM orders));
+SELECT setval('orders_order_id_seq',
+              (SELECT COALESCE(MAX(order_id), 1) FROM orders),
+              TRUE);
 
 -- payments.payment_id
-SELECT setval('payments_payment_id_seq', (SELECT COALESCE(MAX(payment_id),1) FROM payments));
+SELECT setval('payments_payment_id_seq',
+              (SELECT COALESCE(MAX(payment_id), 1) FROM payments),
+              TRUE);
 
 -- shipments.shipment_id
-SELECT setval('shipments_shipment_id_seq', (SELECT COALESCE(MAX(shipment_id),1) FROM shipments));
+SELECT setval('shipments_shipment_id_seq',
+              (SELECT COALESCE(MAX(shipment_id), 1) FROM shipments),
+              TRUE);
 
 -- reviews.review_id
-SELECT setval('reviews_review_id_seq', (SELECT COALESCE(MAX(review_id),1) FROM reviews));
-SELECT setval('shipments_shipment_id_seq', (SELECT MAX(shipment_id) FROM shipments));
+SELECT setval('reviews_review_id_seq',
+              (SELECT COALESCE(MAX(review_id), 1) FROM reviews),
+              TRUE);
+
+
 
 ------------------------------------------------------------
 -- 完成
