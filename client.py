@@ -1,4 +1,6 @@
-# client.py
+# ==========================================
+# NTU Marketplace - Final Client.py (Fixed Admin)
+# ==========================================
 import socket
 import json
 
@@ -7,170 +9,151 @@ PORT = 5000
 
 
 def send_request(payload: dict) -> dict:
-    """送 request 給 server，拿回 JSON。"""
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.connect((HOST, PORT))
     s.send(json.dumps(payload, ensure_ascii=False).encode("utf-8"))
-    data = s.recv(8192).decode("utf-8")
+    data = s.recv(16384).decode("utf-8")
     s.close()
+
     try:
         return json.loads(data)
-    except Exception:
-        return {"status": "fail", "message": "無法解析伺服器回應。"}
+    except:
+        return {"status": "fail", "message": "無法解析伺服器回應"}
 
 
-# ========== 登入流程 ==========
-
+# ============================================================
+# Login
+# ============================================================
 def login_flow():
     print("----------------------------------------")
     print(" NTU Marketplace - Login")
     print("----------------------------------------")
+
     while True:
         email = input("Email: ").strip()
         password = input("Password: ").strip()
 
-        req = {"action": "login", "email": email, "password": password}
-        res = send_request(req)
+        res = send_request({"action": "login", "email": email, "password": password})
 
         if res.get("status") == "ok":
             print(f"\n登入成功！歡迎 {res['full_name']} ({res['student_no']})")
+
             return {
                 "student_no": res["student_no"],
                 "full_name": res["full_name"],
                 "email": res["email"],
+                "role": res["role"],     # ← 保留 admin 角色
             }
+
         else:
-            print("\n登入失敗：", res.get("message", "未知錯誤"))
-            retry = input("要再試一次嗎？(y/n) ").strip().lower()
-            if retry != "y":
+            print("登入失敗：", res.get("message"))
+            if input("再試一次？(y/n): ").lower() != "y":
                 return None
 
 
-# ========== 選單功能 ==========
-
+# ============================================================
+# Main Menu
+# ============================================================
 def show_main_menu(user):
     print("\n----------------------------------------")
     print(" NTU Marketplace - Main Menu")
     print("----------------------------------------")
-    print(f"目前登入：{user['full_name']} ({user['student_no']})")
-    print("[1] 瀏覽可購買的商品")
-    print("[2] 購買商品（建立訂單）")
+    print(f"登入身分：{user['full_name']} ({user['student_no']})")
+    print(f"角色：{user['role']}")
+
+    print("[1] 瀏覽可購買商品")
+    print("[2] 購買商品")
     print("[3] 查看我買過的訂單")
     print("[4] 查看我正在賣的商品")
     print("[5] 新增商品上架")
-    print("[6] （賣家）查看待出貨訂單")
+    print("[6] （賣家）待出貨訂單")
     print("[7] （賣家）出貨")
-    print("[8] （買家）對完成訂單留下評價")
+    print("[8] （買家）評價訂單")
     print("[9] 登出")
-    print("----------------------------------------")
-    choice = input("請輸入選項：").strip()
-    return choice
+
+    if user["role"] == "admin":
+        print("----------------------------------------")
+        print("📊 進階分析功能（Admin）")
+        print("[10] SQL 系統分析")
+        print("[11] NoSQL 行為紀錄分析（JSONB）")
+
+    return input("\n請輸入選項：")
 
 
+# ============================================================
+# Basic Functions
+# ============================================================
 def action_list_items(user):
     res = send_request({"action": "list_items"})
-    if res.get("status") != "ok":
-        print("查詢失敗：", res.get("message"))
+    if res["status"] != "ok":
+        print("失敗：", res["message"])
         return
 
-    items = res.get("items", [])
-    if not items:
-        print("目前沒有可購買的商品。")
-        return
-
-    print("\n=== 可購買商品列表 ===")
-    for it in items:
-        print(
-            f"#{it['item_id']}: {it['title']} | NT${it['price']} | 狀況: {it['condition']} | "
-            f"庫存: {it['quantity']} | 類別: {it['category_name']} | 賣家: {it['seller_name']}"
-        )
+    for it in res["items"]:
+        print(f"#{it['item_id']} {it['title']} | NT${it['price']} | 庫存 {it['quantity']} | 賣家 {it['seller_name']}")
 
 
 def action_place_order(user):
     try:
-        item_id = int(input("請輸入要購買的 item_id：").strip())
-        qty = int(input("請輸入購買數量：").strip())
-    except ValueError:
-        print("輸入格式錯誤，請輸入數字。")
+        item_id = int(input("item_id："))
+        qty = int(input("數量："))
+    except:
+        print("格式錯誤")
         return
 
-    confirm = input(f"確認要購買 item {item_id}，數量 {qty} 嗎？(y/n) ").strip().lower()
-    if confirm != "y":
-        print("已取消下單。")
-        return
-
-    req = {
+    res = send_request({
         "action": "place_order",
         "student_no": user["student_no"],
         "item_id": item_id,
         "qty": qty,
-    }
-    res = send_request(req)
+    })
+
     if res.get("status") == "ok":
-        print("✅", res.get("message"))
+        print("✅ 下單成功！")
+        print(f"訂單編號：{res.get('order_id')}")
+        print(f"總金額：NT${res.get('total_amount')}")
     else:
         print("❌ 下單失敗：", res.get("message"))
 
 
 def action_my_orders(user):
-    req = {"action": "my_orders", "student_no": user["student_no"]}
-    res = send_request(req)
-    if res.get("status") != "ok":
-        print("查詢失敗：", res.get("message"))
+    res = send_request({"action": "my_orders", "student_no": user["student_no"]})
+    if res["status"] != "ok":
+        print("查詢失敗：", res["message"])
         return
 
-    orders = res.get("orders", [])
-    if not orders:
-        print("你目前還沒有任何訂單。")
-        return
-
-    print("\n=== 我買過的訂單 ===")
-    for o in orders:
-        print(
-            f"訂單 #{o['order_id']} | 賣家: {o['seller_name']} | "
-            f"金額: NT${o['total_amount']} | 狀態: {o['status']} | 建立時間: {o['created_at']}"
-        )
+    for o in res["orders"]:
+        print(f"訂單#{o['order_id']} | {o['status']} | NT${o['total_amount']} | 賣家 {o['seller_name']}")
 
 
 def action_my_selling_items(user):
-    req = {"action": "list_my_selling_items", "student_no": user["student_no"]}
-    res = send_request(req)
-    if res.get("status") != "ok":
-        print("查詢失敗：", res.get("message"))
+    res = send_request({
+        "action": "list_my_selling_items",
+        "student_no": user["student_no"]
+    })
+    if res["status"] != "ok":
+        print(res["message"])
         return
 
-    items = res.get("items", [])
-    if not items:
-        print("你目前沒有上架任何商品。")
-        return
-
-    print("\n=== 我正在賣的商品 ===")
-    for it in items:
-        print(
-            f"#{it['item_id']} {it['title']} | NT${it['price']} | "
-            f"庫存: {it['quantity']} | 狀態: {it['status']}"
-        )
+    for it in res["items"]:
+        print(f"#{it['item_id']} {it['title']} | NT${it['price']} | 狀態 {it['status']}")
 
 
 def action_add_item(user):
-    print("\n=== 新增商品上架 ===")
-    title = input("商品標題：").strip()
-    description = input("商品描述：").strip()
+    title = input("標題：")
+    description = input("描述：")
 
     try:
-        category_id = int(
-            input("分類 ID（例如 6=Laptops, 8=Textbooks...）：").strip()
-        )
-        quantity = int(input("數量：").strip())
-        price = float(input("價格：").strip())
-    except ValueError:
-        print("輸入格式錯誤，請重新操作。")
+        category_id = int(input("分類 ID："))
+        quantity = int(input("數量："))
+        price = float(input("價格："))
+    except:
+        print("格式錯誤")
         return
 
-    print("狀況請輸入：new / like-new / good / fair / used")
-    condition = input("商品狀況：").strip()
+    condition = input("狀況（new/like-new/good/fair/used）：")
 
-    req = {
+    res = send_request({
         "action": "add_item",
         "student_no": user["student_no"],
         "title": title,
@@ -179,111 +162,166 @@ def action_add_item(user):
         "condition": condition,
         "quantity": quantity,
         "price": price,
-    }
-
-    res = send_request(req)
-    if res.get("status") == "ok":
-        print("✅", res.get("message"))
-    else:
-        print("❌ 上架失敗：", res.get("message"))
+    })
+    print(res["message"])
 
 
 def action_orders_to_ship(user):
-    req = {"action": "orders_to_ship", "student_no": user["student_no"]}
-    res = send_request(req)
-    if res.get("status") != "ok":
-        print("查詢失敗：", res.get("message"))
-        return
-
-    orders = res.get("orders", [])
-    if not orders:
-        print("目前沒有需要出貨的訂單（狀態 Paid）。")
-        return
-
-    print("\n=== 待出貨訂單 ===")
-    for o in orders:
-        print(
-            f"訂單 #{o['order_id']} | 買家: {o['buyer_name']} | "
-            f"金額: NT${o['total_amount']} | 建立時間: {o['created_at']}"
-        )
+    res = send_request({
+        "action": "orders_to_ship",
+        "student_no": user["student_no"]
+    })
+    for o in res["orders"]:
+        print(f"訂單 #{o['order_id']} | NT${o['total_amount']} | 買家 {o['buyer_name']}")
 
 
 def action_ship_order(user):
     try:
-        order_id = int(input("請輸入要出貨的訂單編號：").strip())
-    except ValueError:
-        print("請輸入數字訂單編號。")
+        order_id = int(input("訂單 ID："))
+    except:
+        print("格式錯誤")
         return
 
-    carrier = input("物流業者（預設 7-11）：").strip()
-    tracking_no = input("追蹤碼（若空白會自動產生）：").strip()
+    carrier = input("物流（預設 7-11）：")
+    tracking = input("追蹤碼：")
 
-    req = {
+    res = send_request({
         "action": "ship_order",
         "student_no": user["student_no"],
         "order_id": order_id,
-        "carrier": carrier or None,
-        "tracking_no": tracking_no or None,
-    }
-
-    res = send_request(req)
-    if res.get("status") == "ok":
-        print("✅", res.get("message"))
-    else:
-        print("❌ 出貨失敗：", res.get("message"))
+        "carrier": carrier,
+        "tracking_no": tracking,
+    })
+    print(res["message"])
 
 
 def action_pending_reviews(user):
-    """
-    回傳可評價訂單列表，讓 main 決定要不要進一步呼叫 action_create_review。
-    """
-    req = {"action": "pending_reviews", "student_no": user["student_no"]}
-    res = send_request(req)
-    if res.get("status") != "ok":
-        print("查詢失敗：", res.get("message"))
+    res = send_request({
+        "action": "pending_reviews",
+        "student_no": user["student_no"],
+    })
+
+    if not res["orders"]:
+        print("沒有可評價的訂單")
         return []
 
-    orders = res.get("orders", [])
-    if not orders:
-        print("目前沒有可以評價的訂單。")
-        return []
+    for o in res["orders"]:
+        print(f"訂單 #{o['order_id']} | 賣家 {o['seller_name']} | 完成於 {o['completed_at']}")
 
-    print("\n=== 可評價訂單 ===")
-    for o in orders:
-        print(
-            f"訂單 #{o['order_id']} | 賣家: {o['seller_name']} | 完成時間: {o['completed_at']}"
-        )
-
-    return orders
+    return res["orders"]
 
 
 def action_create_review(user):
     try:
-        order_id = int(input("請輸入要評價的訂單編號：").strip())
-        rating = int(input("請輸入星等（1~5）：").strip())
-    except ValueError:
-        print("請輸入正確的數字格式。")
+        order_id = int(input("訂單 ID："))
+        rating = int(input("評分 1~5："))
+    except:
+        print("格式錯誤")
         return
 
-    comment = input("請輸入評語（可空白）：").strip()
+    comment = input("評論：")
 
-    req = {
+    res = send_request({
         "action": "create_review",
         "student_no": user["student_no"],
         "order_id": order_id,
         "rating": rating,
         "comment": comment,
-    }
-
-    res = send_request(req)
-    if res.get("status") == "ok":
-        print("✅", res.get("message"))
-    else:
-        print("❌ 評價失敗：", res.get("message"))
+    })
+    print(res["message"])
 
 
-# ========== 主程式 ==========
+# ============================================================
+# SQL Analytics (Admin)
+# ============================================================
+def sql_menu():
+    print("\n=== SQL 系統分析 ===")
+    print("[1] 依分類銷售額")
+    print("[2] 每月營收")
+    print("[3] 賣家平均評價")
+    print("[4] 熱門商品")
+    print("[0] 返回")
+    return input("選項：")
 
+
+def sql_show(res):
+    if res["status"] != "ok":
+        print(res["message"])
+        return
+    for r in res["data"]:
+        print(r)
+
+
+def action_sql_analytics(user):
+    while True:
+        c = sql_menu()
+
+        if c == "1":
+            sql_show(send_request({
+                "action": "analytics_category_revenue",
+                "student_no": user["student_no"],
+                "role": user["role"]
+            }))
+        elif c == "2":
+            sql_show(send_request({
+                "action": "analytics_monthly_revenue",
+                "student_no": user["student_no"],
+                "role": user["role"]
+            }))
+        elif c == "3":
+            sql_show(send_request({
+                "action": "analytics_seller_rating",
+                "student_no": user["student_no"],
+                "role": user["role"]
+            }))
+        elif c == "4":
+            sql_show(send_request({
+                "action": "analytics_top_items",
+                "student_no": user["student_no"],
+                "role": user["role"]
+            }))
+        elif c == "0":
+            return
+        else:
+            print("無效選項")
+
+
+# ============================================================
+# NoSQL Analytics (Admin)
+# ============================================================
+def nosql_menu():
+    print("\n=== NoSQL 行為紀錄分析 ===")
+    print("[1] 手機瀏覽紀錄")
+    print("[2] 熱門瀏覽商品 Top10")
+    print("[0] 返回")
+    return input("選項：")
+
+
+def action_nosql_analytics(user):
+    while True:
+        c = nosql_menu()
+
+        if c == "1":
+            sql_show(send_request({
+                "action": "nosql_mobile_views",
+                "student_no": user["student_no"],
+                "role": user["role"]
+            }))
+        elif c == "2":
+            sql_show(send_request({
+                "action": "nosql_hot_views",
+                "student_no": user["student_no"],
+                "role": user["role"]
+            }))
+        elif c == "0":
+            return
+        else:
+            print("無效選項")
+
+
+# ============================================================
+# Main
+# ============================================================
 def main():
     print("========================================")
     print("   NTU Marketplace Console Client")
@@ -291,11 +329,11 @@ def main():
 
     user = login_flow()
     if not user:
-        print("未登入，系統結束。")
         return
 
     while True:
         choice = show_main_menu(user)
+
         if choice == "1":
             action_list_items(user)
         elif choice == "2":
@@ -311,14 +349,19 @@ def main():
         elif choice == "7":
             action_ship_order(user)
         elif choice == "8":
-            orders = action_pending_reviews(user)
-            if orders:
+            if action_pending_reviews(user):
                 action_create_review(user)
         elif choice == "9":
-            print("已登出，系統結束。")
+            print("已登出，再見！")
             break
+
+        # Admin only
+        elif choice == "10" and user["role"] == "admin":
+            action_sql_analytics(user)
+        elif choice == "11" and user["role"] == "admin":
+            action_nosql_analytics(user)
         else:
-            print("無效的選項，請重新輸入。")
+            print("無效選項。")
 
 
 if __name__ == "__main__":
