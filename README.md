@@ -24,14 +24,23 @@ NTU Marketplace 是一個專為台大學生打造的二手交易平台，模擬�
 ## 📁 Project Structure
 
 project/
+
 │── server.py # 主伺服器程式：處理所有 action (login/order/ship/review/analytics)
+
 │── client.py # 終端機操作選單，可多開終端示範買家/賣家併行
+
 │── db_config.py # PostgreSQL 連線設定
+
 │── schema.sql # 建表指令（10 張主表 + JSONB）
+
 │── seed_data.sql # 初始假資料（users、items、orders、reviews…）
+
 │── extra_orders.sql # 額外補充的大量訂單/評價資料（支援 SQL 分析）
+
 │── nosql_view_logs.sql # JSONB 行為紀錄 table + 測試資料
+
 │── README.md
+
 │── presentation.pdf # 系統展示簡報（影片用）
 
 
@@ -271,3 +280,4 @@ Name: 李雅婷
 Educational use only — NTU Database Course 2024 
 
 跟我說一聲即可！
+
